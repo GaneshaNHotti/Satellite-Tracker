@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas.auth import UserCreate, UserLogin, AuthResponse, UserResponse
+from app.schemas.auth import UserCreate, UserLogin, AuthResponse, UserResponse, RefreshTokenRequest, RefreshTokenResponse
 from app.services.auth_service import AuthService
 from app.services.token_blacklist_service import TokenBlacklistService
 from app.utils.dependencies import get_current_active_user, get_token_blacklist_service
@@ -77,6 +77,38 @@ async def get_current_user_info(
         UserResponse: Current user information
     """
     return UserResponse.model_validate(current_user)
+
+
+@router.post("/refresh", response_model=RefreshTokenResponse)
+async def refresh_access_token(
+    refresh_request: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+    blacklist_service: TokenBlacklistService = Depends(get_token_blacklist_service)
+):
+    """
+    Refresh an access token using a valid refresh token.
+    
+    Args:
+        refresh_request: Refresh token request data
+        db: Database session
+        blacklist_service: Token blacklist service instance
+        
+    Returns:
+        RefreshTokenResponse: New access token
+        
+    Raises:
+        HTTPException: If refresh token is invalid, expired, or blacklisted
+    """
+    # Check if refresh token is blacklisted
+    if blacklist_service.is_token_blacklisted(refresh_request.refresh_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    auth_service = AuthService(db)
+    return auth_service.refresh_access_token(refresh_request)
 
 
 @router.post("/logout")

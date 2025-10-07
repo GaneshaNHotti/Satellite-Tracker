@@ -73,5 +73,19 @@ class TokenData(BaseModel):
 class AuthResponse(BaseModel):
     """Schema for authentication response."""
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+    expires_in: int  # Token expiration time in seconds
     user: UserResponse
+
+
+class RefreshTokenRequest(BaseModel):
+    """Schema for refresh token request."""
+    refresh_token: str
+
+
+class RefreshTokenResponse(BaseModel):
+    """Schema for refresh token response."""
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int  # Token expiration time in seconds

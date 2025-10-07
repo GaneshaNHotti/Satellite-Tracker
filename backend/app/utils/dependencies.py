@@ -11,7 +11,7 @@ from app.database import get_db
 from app.models.user import User
 from app.services.auth_service import AuthService
 from app.services.token_blacklist_service import TokenBlacklistService
-from app.utils.auth import extract_user_id_from_token
+from app.utils.auth import extract_user_id_from_token, is_token_expired
 
 # HTTP Bearer token scheme
 security = HTTPBearer()
@@ -57,39 +57,49 @@ def get_current_user(
         User: The current authenticated user
         
     Raises:
-        HTTPException: If token is invalid, blacklisted, or user not found
+        HTTPException: If token is invalid, blacklisted, expired, or user not found
     """
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    
     token = credentials.credentials
+    
+    # Check if token is expired first (requirement 8.3)
+    if is_token_expired(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token has expired. Please login again to continue.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     # Check if token is blacklisted
     if blacklist_service.is_token_blacklisted(token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has been revoked",
+            detail="Token has been revoked. Please login again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
     # Extract user ID from token
     user_id = extract_user_id_from_token(token)
     if user_id is None:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     # Get user from database
     user = auth_service.get_user_by_id(user_id)
     if user is None:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     # Check if user is active
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Inactive user",
+            detail="User account is inactive. Please contact support.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -142,6 +152,10 @@ def get_optional_current_user(
     try:
         token = credentials.credentials
         
+        # Check if token is expired
+        if is_token_expired(token):
+            return None
+        
         # Check if token is blacklisted
         if blacklist_service.is_token_blacklisted(token):
             return None
@@ -157,3 +171,38 @@ def get_optional_current_user(
         return user
     except Exception:
         return None
+
+
+def require_permissions(*permissions: str):
+    """
+    Decorator factory for requiring specific permissions.
+    This is a placeholder for future role-based access control.
+    
+    Args:
+        permissions: List of required permissions
+        
+    Returns:
+        Dependency function that checks permissions
+    """
+    def permission_dependency(current_user: User = Depends(get_current_active_user)) -> User:
+        # For now, just return the user. In the future, this could check
+        # user roles and permissions against the required permissions
+        return current_user
+    
+    return permission_dependency
+
+
+def require_admin():
+    """
+    Dependency that requires admin privileges.
+    This is a placeholder for future admin functionality.
+    
+    Returns:
+        User: The current admin user
+    """
+    def admin_dependency(current_user: User = Depends(get_current_active_user)) -> User:
+        # For now, just return the user. In the future, this could check
+        # if the user has admin role
+        return current_user
+    
+    return admin_dependency

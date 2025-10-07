@@ -8,8 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
 from app.models.user import User
-from app.schemas.auth import UserCreate, UserLogin, UserResponse, AuthResponse
-from app.utils.auth import get_password_hash, verify_password, create_access_token
+from app.schemas.auth import UserCreate, UserLogin, UserResponse, AuthResponse, RefreshTokenRequest, RefreshTokenResponse
+from app.utils.auth import get_password_hash, verify_password, create_access_token, create_refresh_token, extract_user_id_from_token
+from app.config import settings
 
 
 class AuthService:
@@ -122,18 +123,21 @@ class AuthService:
             user_data: The user registration data
             
         Returns:
-            AuthResponse: The authentication response with token and user data
+            AuthResponse: The authentication response with tokens and user data
         """
         # Create the user
         user = self.create_user(user_data)
         
-        # Generate access token
+        # Generate access and refresh tokens
         access_token = create_access_token(data={"sub": str(user.id)})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
         
         # Return authentication response
         return AuthResponse(
             access_token=access_token,
+            refresh_token=refresh_token,
             token_type="bearer",
+            expires_in=settings.access_token_expire_minutes * 60,  # Convert to seconds
             user=UserResponse.model_validate(user)
         )
     
@@ -145,7 +149,7 @@ class AuthService:
             login_data: The user login data
             
         Returns:
-            AuthResponse: The authentication response with token and user data
+            AuthResponse: The authentication response with tokens and user data
             
         Raises:
             HTTPException: If credentials are invalid
@@ -159,12 +163,55 @@ class AuthService:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        # Generate access token
+        # Generate access and refresh tokens
         access_token = create_access_token(data={"sub": str(user.id)})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
         
         # Return authentication response
         return AuthResponse(
             access_token=access_token,
+            refresh_token=refresh_token,
             token_type="bearer",
+            expires_in=settings.access_token_expire_minutes * 60,  # Convert to seconds
             user=UserResponse.model_validate(user)
+        )
+    
+    def refresh_access_token(self, refresh_request: RefreshTokenRequest) -> RefreshTokenResponse:
+        """
+        Refresh an access token using a valid refresh token.
+        
+        Args:
+            refresh_request: The refresh token request data
+            
+        Returns:
+            RefreshTokenResponse: New access token
+            
+        Raises:
+            HTTPException: If refresh token is invalid or expired
+        """
+        # Extract user ID from refresh token
+        user_id = extract_user_id_from_token(refresh_request.refresh_token, token_type="refresh")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Get user from database
+        user = self.get_user_by_id(user_id)
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Generate new access token
+        access_token = create_access_token(data={"sub": str(user.id)})
+        
+        return RefreshTokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=settings.access_token_expire_minutes * 60  # Convert to seconds
         )
