@@ -51,6 +51,16 @@ class NotFoundError(SatelliteTrackerException):
         super().__init__(message, "NOT_FOUND", details)
 
 
+class ConflictError(SatelliteTrackerException):
+    """Exception raised when a resource conflict occurs (e.g., duplicate entries)."""
+    
+    def __init__(self, message: str, resource_type: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        error_details = details or {}
+        if resource_type:
+            error_details["resource_type"] = resource_type
+        super().__init__(message, "CONFLICT", error_details)
+
+
 class ExternalAPIError(SatelliteTrackerException):
     """Exception raised for external API errors."""
     
