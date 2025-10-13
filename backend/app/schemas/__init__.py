@@ -11,11 +11,22 @@ from .auth import (
     AuthResponse
 )
 
+from .location import (
+    LocationCreate,
+    LocationUpdate,
+    LocationResponse,
+    LocationCoordinates
+)
+
 __all__ = [
     "UserCreate",
     "UserLogin", 
     "UserResponse",
     "Token",
     "TokenData",
-    "AuthResponse"
+    "AuthResponse",
+    "LocationCreate",
+    "LocationUpdate",
+    "LocationResponse",
+    "LocationCoordinates"
 ]

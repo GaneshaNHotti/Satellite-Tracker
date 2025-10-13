@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 
 from app.api.auth import router as auth_router
+from app.api.location import router as location_router
 from app.config import settings
 from app.middleware.auth_middleware import AuthenticationMiddleware, RateLimitMiddleware
 
@@ -30,6 +31,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
+app.include_router(location_router, prefix=settings.api_v1_prefix)
 
 @app.get("/")
 async def root():
