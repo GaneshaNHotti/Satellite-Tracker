@@ -1,6 +1,6 @@
 import os
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import List, Optional
 
 class Settings(BaseSettings):
     # Database settings
@@ -24,6 +24,30 @@ class Settings(BaseSettings):
     
     # API settings
     api_v1_prefix: str = "/api/v1"
+    
+    # Application settings
+    debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    environment: str = os.getenv("ENVIRONMENT", "development")
+    
+    # Logging settings
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    
+    # CORS settings
+    allowed_origins: List[str] = [
+        "http://localhost:3000",  # React dev server
+        "http://localhost:3001",  # Alternative React port
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "https://satellitetracker.com",  # Production frontend
+        "https://www.satellitetracker.com"  # Production frontend with www
+    ]
+    
+    # Additional CORS settings
+    cors_allow_credentials: bool = True
+    cors_max_age: int = 86400  # 24 hours
+    
+    # Rate limiting settings
+    rate_limit_enabled: bool = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
     
     class Config:
         env_file = ".env"

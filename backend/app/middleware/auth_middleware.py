@@ -147,25 +147,42 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Simple rate limiting middleware for authentication endpoints.
+    Enhanced rate limiting middleware with multiple strategies.
     
-    This middleware implements basic rate limiting to prevent brute force attacks
-    on authentication endpoints.
+    This middleware implements rate limiting to prevent abuse and brute force attacks
+    with different limits for different endpoint types.
     """
     
-    def __init__(self, app, max_requests: int = 10, window_seconds: int = 300):
+    def __init__(self, app, redis_client=None):
         super().__init__(app)
-        self.max_requests = max_requests
-        self.window_seconds = window_seconds
-        self.request_counts = {}  # In production, use Redis
-        self.rate_limited_paths = [
-            "/api/v1/auth/login",
-            "/api/v1/auth/register"
-        ]
+        self.redis_client = redis_client
+        self.request_counts = {}  # Fallback when Redis is not available
+        
+        # Rate limiting configurations for different endpoint types
+        self.rate_limits = {
+            "auth": {
+                "paths": ["/api/v1/auth/login", "/api/v1/auth/register"],
+                "max_requests": 5,
+                "window_seconds": 300,  # 5 minutes
+                "block_duration": 900   # 15 minutes
+            },
+            "api": {
+                "paths": ["/api/v1/"],  # All API endpoints
+                "max_requests": 100,
+                "window_seconds": 60,   # 1 minute
+                "block_duration": 300   # 5 minutes
+            },
+            "search": {
+                "paths": ["/api/v1/satellites/search"],
+                "max_requests": 20,
+                "window_seconds": 60,   # 1 minute
+                "block_duration": 180   # 3 minutes
+            }
+        }
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
-        Process the request and apply rate limiting.
+        Process the request and apply appropriate rate limiting.
         
         Args:
             request: The incoming request
@@ -174,56 +191,206 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         Returns:
             Response: The response from the next middleware or endpoint
         """
-        # Only apply rate limiting to specific paths
-        if request.url.path not in self.rate_limited_paths:
-            return await call_next(request)
-        
-        # Get client IP
-        client_ip = request.client.host
+        client_ip = request.client.host if request.client else "unknown"
         current_time = time.time()
         
-        # Clean up old entries
-        self._cleanup_old_entries(current_time)
+        # Determine which rate limit to apply
+        rate_limit_config = self._get_rate_limit_config(request.url.path)
+        if not rate_limit_config:
+            return await call_next(request)
         
-        # Check rate limit
-        key = f"{client_ip}:{request.url.path}"
-        if key in self.request_counts:
-            requests, first_request_time = self.request_counts[key]
+        # Check if client is currently blocked
+        if await self._is_client_blocked(client_ip, rate_limit_config, current_time):
+            logger.warning(
+                f"Blocked client {client_ip} attempted access to {request.url.path}",
+                extra={
+                    "client_ip": client_ip,
+                    "path": request.url.path,
+                    "rate_limit_type": rate_limit_config["type"]
+                }
+            )
+            return self._create_rate_limit_response(rate_limit_config["block_duration"])
+        
+        # Check current rate limit
+        if await self._check_rate_limit(client_ip, request.url.path, rate_limit_config, current_time):
+            # Rate limit exceeded - block the client
+            await self._block_client(client_ip, rate_limit_config, current_time)
             
-            if current_time - first_request_time < self.window_seconds:
-                if requests >= self.max_requests:
-                    logger.warning(f"Rate limit exceeded for {client_ip} on {request.url.path}")
-                    return JSONResponse(
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        content={
-                            "error": {
-                                "code": "RATE_LIMIT_EXCEEDED",
-                                "message": f"Too many requests. Please try again in {self.window_seconds} seconds.",
-                                "details": {
-                                    "retry_after": self.window_seconds,
-                                    "timestamp": current_time
-                                }
-                            }
-                        },
-                        headers={"Retry-After": str(self.window_seconds)}
-                    )
-                else:
-                    self.request_counts[key] = (requests + 1, first_request_time)
-            else:
-                # Reset counter for new window
-                self.request_counts[key] = (1, current_time)
-        else:
-            # First request from this IP for this path
-            self.request_counts[key] = (1, current_time)
+            logger.warning(
+                f"Rate limit exceeded for {client_ip} on {request.url.path}",
+                extra={
+                    "client_ip": client_ip,
+                    "path": request.url.path,
+                    "rate_limit_type": rate_limit_config["type"],
+                    "max_requests": rate_limit_config["max_requests"],
+                    "window_seconds": rate_limit_config["window_seconds"]
+                }
+            )
+            return self._create_rate_limit_response(rate_limit_config["block_duration"])
+        
+        # Record the request
+        await self._record_request(client_ip, request.url.path, rate_limit_config, current_time)
         
         return await call_next(request)
     
-    def _cleanup_old_entries(self, current_time: float):
-        """Clean up old rate limiting entries."""
-        keys_to_remove = []
-        for key, (_, first_request_time) in self.request_counts.items():
-            if current_time - first_request_time >= self.window_seconds:
-                keys_to_remove.append(key)
+    def _get_rate_limit_config(self, path: str) -> dict:
+        """
+        Get the appropriate rate limit configuration for the given path.
         
-        for key in keys_to_remove:
-            del self.request_counts[key]
+        Args:
+            path: Request path
+            
+        Returns:
+            Rate limit configuration or None if no limits apply
+        """
+        # Check specific paths first (most restrictive)
+        for limit_type, config in self.rate_limits.items():
+            for limit_path in config["paths"]:
+                if path == limit_path or (limit_path.endswith("/") and path.startswith(limit_path)):
+                    return {**config, "type": limit_type}
+        
+        return None
+    
+    async def _is_client_blocked(self, client_ip: str, config: dict, current_time: float) -> bool:
+        """
+        Check if a client is currently blocked.
+        
+        Args:
+            client_ip: Client IP address
+            config: Rate limit configuration
+            current_time: Current timestamp
+            
+        Returns:
+            True if client is blocked, False otherwise
+        """
+        block_key = f"blocked:{config['type']}:{client_ip}"
+        
+        if self.redis_client:
+            try:
+                blocked_until = await self.redis_client.get(block_key)
+                if blocked_until and float(blocked_until) > current_time:
+                    return True
+            except Exception as e:
+                logger.error(f"Redis error checking block status: {e}")
+        else:
+            # Fallback to in-memory storage
+            if block_key in self.request_counts:
+                blocked_until = self.request_counts[block_key]
+                if blocked_until > current_time:
+                    return True
+                else:
+                    del self.request_counts[block_key]
+        
+        return False
+    
+    async def _check_rate_limit(self, client_ip: str, path: str, config: dict, current_time: float) -> bool:
+        """
+        Check if the rate limit has been exceeded.
+        
+        Args:
+            client_ip: Client IP address
+            path: Request path
+            config: Rate limit configuration
+            current_time: Current timestamp
+            
+        Returns:
+            True if rate limit exceeded, False otherwise
+        """
+        rate_key = f"rate:{config['type']}:{client_ip}"
+        
+        if self.redis_client:
+            try:
+                # Use Redis sliding window
+                pipe = self.redis_client.pipeline()
+                pipe.zremrangebyscore(rate_key, 0, current_time - config["window_seconds"])
+                pipe.zcard(rate_key)
+                pipe.zadd(rate_key, {str(current_time): current_time})
+                pipe.expire(rate_key, config["window_seconds"])
+                results = await pipe.execute()
+                
+                request_count = results[1]
+                return request_count >= config["max_requests"]
+                
+            except Exception as e:
+                logger.error(f"Redis error checking rate limit: {e}")
+                # Fall back to in-memory check
+        
+        # Fallback to in-memory storage
+        if rate_key not in self.request_counts:
+            self.request_counts[rate_key] = []
+        
+        # Clean old entries
+        self.request_counts[rate_key] = [
+            timestamp for timestamp in self.request_counts[rate_key]
+            if current_time - timestamp < config["window_seconds"]
+        ]
+        
+        # Check if limit exceeded
+        if len(self.request_counts[rate_key]) >= config["max_requests"]:
+            return True
+        
+        return False
+    
+    async def _record_request(self, client_ip: str, path: str, config: dict, current_time: float):
+        """
+        Record a request for rate limiting purposes.
+        
+        Args:
+            client_ip: Client IP address
+            path: Request path
+            config: Rate limit configuration
+            current_time: Current timestamp
+        """
+        rate_key = f"rate:{config['type']}:{client_ip}"
+        
+        if not self.redis_client:
+            # Add to in-memory storage
+            if rate_key not in self.request_counts:
+                self.request_counts[rate_key] = []
+            self.request_counts[rate_key].append(current_time)
+    
+    async def _block_client(self, client_ip: str, config: dict, current_time: float):
+        """
+        Block a client for the specified duration.
+        
+        Args:
+            client_ip: Client IP address
+            config: Rate limit configuration
+            current_time: Current timestamp
+        """
+        block_key = f"blocked:{config['type']}:{client_ip}"
+        blocked_until = current_time + config["block_duration"]
+        
+        if self.redis_client:
+            try:
+                await self.redis_client.setex(block_key, config["block_duration"], str(blocked_until))
+            except Exception as e:
+                logger.error(f"Redis error blocking client: {e}")
+        else:
+            # Fallback to in-memory storage
+            self.request_counts[block_key] = blocked_until
+    
+    def _create_rate_limit_response(self, retry_after: int) -> JSONResponse:
+        """
+        Create a rate limit exceeded response.
+        
+        Args:
+            retry_after: Seconds to wait before retrying
+            
+        Returns:
+            JSONResponse with rate limit error
+        """
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={
+                "error": {
+                    "code": "RATE_LIMIT_EXCEEDED",
+                    "message": f"Too many requests. Please try again in {retry_after} seconds.",
+                    "details": {
+                        "retry_after": retry_after,
+                        "timestamp": time.time()
+                    }
+                }
+            },
+            headers={"Retry-After": str(retry_after)}
+        )
