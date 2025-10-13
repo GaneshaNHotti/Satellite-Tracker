@@ -18,6 +18,16 @@ from .location import (
     LocationCoordinates
 )
 
+from .favorite import (
+    FavoriteCreate,
+    FavoriteResponse,
+    FavoritesListResponse,
+    FavoriteBatchCreate,
+    FavoriteBatchResponse,
+    FavoriteDeleteResponse,
+    FavoritesWithPositionsRequest
+)
+
 __all__ = [
     "UserCreate",
     "UserLogin", 
@@ -28,5 +38,12 @@ __all__ = [
     "LocationCreate",
     "LocationUpdate",
     "LocationResponse",
-    "LocationCoordinates"
+    "LocationCoordinates",
+    "FavoriteCreate",
+    "FavoriteResponse",
+    "FavoritesListResponse",
+    "FavoriteBatchCreate",
+    "FavoriteBatchResponse",
+    "FavoriteDeleteResponse",
+    "FavoritesWithPositionsRequest"
 ]
