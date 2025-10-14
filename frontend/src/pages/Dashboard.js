@@ -1,14 +1,16 @@
 import React from 'react';
+import { SatelliteManager } from '../components';
 
 const Dashboard = () => {
   return (
     <div className="row">
       <div className="col-12">
         <h2>Satellite Tracking Dashboard</h2>
-        <p>Dashboard functionality will be implemented in later tasks.</p>
-        <div className="alert alert-info">
-          <strong>Coming Soon:</strong> Real-time satellite positions, pass predictions, and favorites management.
-        </div>
+        <p className="text-muted mb-4">
+          Search for satellites, manage your favorites, and track their positions in real-time.
+        </p>
+        
+        <SatelliteManager />
       </div>
     </div>
   );
