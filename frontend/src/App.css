@@ -1,13 +1,33 @@
-.App {
-  text-align: center;
+/* Custom styles for the Satellite Tracker app */
+
+.navbar-brand {
+  font-weight: bold;
 }
 
-.App-header {
-  background-color: #282c34;
-  padding: 20px;
-  color: white;
+.jumbotron {
+  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
 }
 
-.App-header h1 {
-  margin: 0;
+.card {
+  transition: transform 0.2s ease-in-out;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.nav-link.active {
+  font-weight: bold;
+}
+
+/* Ensure footer stays at bottom */
+.min-vh-100 {
+  min-height: 100vh;
+}
+
+.flex-grow-1 {
+  flex-grow: 1;
 }
