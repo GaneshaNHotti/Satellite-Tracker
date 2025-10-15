@@ -58,10 +58,6 @@ app = FastAPI(
         "name": "Satellite Tracker API Support",
         "email": "support@satellitetracker.com",
     },
-    license_info={
-        "name": "MIT License",
-        "url": "https://opensource.org/licenses/MIT",
-    },
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -122,7 +118,7 @@ app.add_middleware(
     max_age=86400,  # 24 hours
 )
 
-app.include_router(health_router)  # Health endpoints at root level
+app.include_router(health_router, prefix=settings.api_v1_prefix)  # Health endpoints at root level
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
 app.include_router(location_router, prefix=settings.api_v1_prefix)
 app.include_router(satellites_router, prefix=settings.api_v1_prefix)
