@@ -11,3 +11,4 @@ export { default as SatelliteManager } from './SatelliteManager';
 export { default as SatelliteSearch } from './SatelliteSearch';
 export { default as FavoritesList } from './FavoritesList';
 export { default as SatelliteDetail } from './SatelliteDetail';
+export { default as SatelliteTrackingDashboard } from './SatelliteTrackingDashboard';

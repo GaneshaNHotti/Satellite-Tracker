@@ -80,6 +80,13 @@ class UserService {
       const response = await httpClient.get('/users/favorites');
       return response.data.favorites || [];
     } catch (error) {
+      // Handle specific error cases more gracefully
+      if (error.response?.status === 404) {
+        // Endpoint not found - likely backend not running or routing issue
+        console.warn('Favorites endpoint not found - backend may not be running');
+        return [];
+      }
+      
       const message = error.response?.data?.error?.message || 
                      error.response?.data?.detail || 
                      error.message || 
@@ -134,6 +141,19 @@ class UserService {
       const response = await httpClient.get('/users/passes');
       return response.data.passes || [];
     } catch (error) {
+      // Handle specific error cases more gracefully
+      if (error.response?.status === 404) {
+        // Endpoint not found - likely backend not running or routing issue
+        console.warn('Passes endpoint not found - backend may not be running');
+        return [];
+      }
+      
+      if (error.response?.status === 422) {
+        // Validation error - likely no location set
+        console.warn('Cannot get passes - user may need to set location first');
+        return [];
+      }
+      
       const message = error.response?.data?.error?.message || 
                      error.response?.data?.detail || 
                      error.message || 
