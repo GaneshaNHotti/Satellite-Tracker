@@ -13,7 +13,7 @@ class APIVersion:
     """API version information and utilities."""
     
     CURRENT_VERSION = "1.0.0"
-    SUPPORTED_VERSIONS = ["1.0.0"]
+    SUPPORTED_VERSIONS = ["1", "1.0", "1.0.0"]  # Support multiple version formats
     DEPRECATED_VERSIONS = []
     
     @classmethod
@@ -82,23 +82,44 @@ def extract_api_version(request: Request) -> str:
     if "version=" in accept_header:
         try:
             version_part = accept_header.split("version=")[1].split(";")[0].split(",")[0]
-            return version_part.strip()
+            return normalize_version(version_part.strip())
         except (IndexError, AttributeError):
             pass
     
     # Check for version in custom header
     version_header = request.headers.get("API-Version")
     if version_header:
-        return version_header.strip()
+        return normalize_version(version_header.strip())
     
     # Check for version in path (e.g., /api/v1/...)
     path_parts = request.url.path.split("/")
     for part in path_parts:
         if part.startswith("v") and part[1:].replace(".", "").isdigit():
-            return part[1:]  # Remove 'v' prefix
+            return normalize_version(part[1:])  # Remove 'v' prefix
     
     # Default to current version
     return APIVersion.CURRENT_VERSION
+
+
+def normalize_version(version: str) -> str:
+    """
+    Normalize version string to a consistent format.
+    
+    Args:
+        version: Version string to normalize
+        
+    Returns:
+        Normalized version string
+    """
+    # Handle common version formats
+    if version == "1":
+        return "1"  # Keep as "1" for v1 compatibility
+    elif version == "1.0":
+        return "1.0"
+    elif version == "1.0.0":
+        return "1.0.0"
+    
+    return version
 
 
 def validate_api_version(version: str) -> None:
